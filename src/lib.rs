@@ -41,6 +41,7 @@ extern crate self as deepsize;
 pub use deepsize_derive::*;
 
 use core::mem::{size_of, size_of_val};
+use std::borrow::Borrow;
 
 #[cfg(test)]
 mod test;
@@ -122,6 +123,44 @@ pub trait DeepSizeOf {
     /// }
     /// ```
     fn deep_size_of_children(&self, context: &mut Context) -> usize;
+}
+
+pub trait CopyDeepSizeOf: Copy {
+    /// Intentionally clashes with `DeepSizeOf` to enable autoref specialization
+    /// https://github.com/dtolnay/case-studies/blob/master/autoref-specialization/README.md
+    fn deep_size_of_children(&self, context: &mut Context) -> usize;
+}
+
+impl<T: Copy> CopyDeepSizeOf for T {
+    fn deep_size_of_children(&self, context: &mut Context) -> usize {
+        0
+    }
+}
+
+#[test]
+fn test_derive_for_copy_just_works() {
+    #[derive(Clone, Copy, Default)] // NB: don't derive DeepSizeOf
+    struct Spam(i32);
+    #[derive(Clone, Default, DeepSizeOf)]
+    struct Eggs(Box<i32>);
+    #[derive(Clone, Copy, Default, DeepSizeOf)] // *both* copy and derive
+    struct Tea;
+
+    #[derive(Clone, Default)]
+    struct Breakfast {
+        ham: Spam,
+        eggs: Eggs,
+        tea: Tea,
+    }
+
+    impl DeepSizeOf for Breakfast {
+        fn deep_size_of_children(&self, context: &mut Context) -> usize {
+            use {CopyDeepSizeOf, DeepSizeOf};
+            self.ham.deep_size_of_children(context) + self.eggs.deep_size_of_children(context)
+        }
+    }
+
+    assert_eq!(Breakfast::default().deep_size_of(), 20)
 }
 
 #[cfg(not(feature = "std"))]
